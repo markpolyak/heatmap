@@ -1,131 +1,43 @@
-<?php 
+<?php
+	require_once("../lib/config.php");
+	require_once("func.php");
 	$time = microtime(true);
 	
-	//долгота в px
-	function getLongitudeToPix($lon,$z)
-	{
-		return (int) (($lon + 180.0) / 360.0 * (256 * pow(2, $z)));
-	}
-	//широта в px
-	function getLatitudeToPix($lat,$z)
-	{
-		$rLat = $lat * M_PI / 180; 
-		$a = 6378137.0;
-		$k = 0.0818191908426;
-
-		$zz = tan(M_PI_4 + $rLat / 2)  / pow((tan(M_PI_4 + asin($k * sin($rLat)) / 2)), $k);
-		$y = (20037508.342789 - $a * log($zz)) * 53.5865938 / pow( 2 ,23 - $z);
-		return (int) $y;
-	}
-	//проверка попадания точки в область
-	function ODZ($x,$y,$odzPix)
-	{
-		$check = false;
-		for($i = 0; $i < (count($odzPix)-1); $i++)
-		{
-			$k1 = $i;
-			$k2 = $i+1;
-			if ($odzPix[$k1]["y"] >= $odzPix[$k2]["y"]) 
-			{
-				$k1 = $i+1;
-				$k2 = $i;
-			}
-			
-			if (!($y >= $odzPix[$k1]["y"] && $y < $odzPix[$k2]["y"])) continue;
-			
-			$ox = -((($odzPix[$k2]["x"] - $odzPix[$k1]["x"])*$y + ($odzPix[$k1]["x"]*$odzPix[$k2]["y"] - $odzPix[$k2]["x"]*$odzPix[$k1]["y"]))/($odzPix[$k1]["y"]-$odzPix[$k2]["y"]));
-			
-			if ($x > $ox) $check = !$check;
-			
-		}
-		return $check;
-	}
+	$wh = 256;                                              //высота и ширина каждого тайла
+	$tileX = isset($_GET['tileX'])?$_GET['tileX']:149;      //выбрать тайл по X
+	$tileY = isset($_GET['tileY'])?$_GET['tileY']:74;       //выбрать тайл по Y
+	$zoom = isset($_GET['tileZ'])?$_GET['tileZ']:8;         //увеличение
+	$date1 = isset($_GET['date1'])?$_GET['date1']:"1950-01-01";        //дата от
+	$date2 = isset($_GET['date2'])?$_GET['date2']:"2017-01-01";        //дата до
+	$checkLog = isset($_GET['log'])?$_GET['log']:false;                //включить логи
+	$tileDirWater = "karta/z".$zoom."/";                    //папка сохранения тайлов шаблона воды
+	$tileDirGradient = "kartaGradient/z".$zoom."/";         //папка сохранения тайлов градиента
+	$fileName = "x".$tileX."y".$tileY.".png";               //имя тайла для сохранения
+	$existsFileName = (file_exists($tileDirGradient.$fileName))?true:false; //проверка существования тайла
 	
-	//echo getLongitudeToPix(28.087042,0)." ,  ".getLatitudeToPix(61.03188,0)."<br>";
-	
-	function getVes($pixels, $x, $y, $options) {
-		$sum = 0;
-		$sumDlina = 0;
-		$funcDlina = array();
-		$countPixels = count($pixels);
-		$srVes = $options["sumVes"]/$countPixels;
-		//echo $srVes."<br>";
-		foreach($pixels as $pix)
-		{
-			if (($x+256*$options["tileX"]) == $pix["x"] && ($y+256*$options["tileY"]) == $pix["y"]) 
-			{
-				return $pix["ves"];
-			}
-			
-			$dlina = sqrt(pow($pix["x"]-($x+256*$options["tileX"]),2)+pow($pix["y"]-($y+256*$options["tileY"]),2)); //расстояние до точки
-			//echo $dlina."<br>";
-			$dlina = 1/pow($dlina,3+0.08*(int)($pix["ves"]/$srVes));
-			$sumDlina += $dlina;
-			$funcDlina[] = $pix["ves"]*$dlina;
-		}
-		
-		//$cof = ($options["sumVes"]/$countPixels)/($options["maxVes"]-$options["minVes"]);
-		for($i = 0; $i < count($funcDlina); $i++)
-		{
-			$sum += ($funcDlina[$i])/($sumDlina);
-		}
-		//echo $cof."<br>";
-		
-		//print_r($funcDlina);
-		//echo "<br>";
-		//print_r($dlinaArr);
-		//echo "<br>";
-		
-		//$sumVes = $sumDlina2/($sumDlina*$countPixels);
-		//$sumVes = $sumVes/$sumDlina;
-		//echo ($sumVes/$countPixels)."<br>";*($countPixels-($maxVes/($sumVes/$countPixels)))
-		return ($sum);
-	}
-	
-	function getMaxMinVes($pixels, &$maxVes, &$minVes, &$sumVes) {
-		foreach($pixels as $pix)
-		{
-			if ($pix["ves"] > $maxVes) $maxVes = $pix["ves"];
-			if ($pix["ves"] < $minVes) $minVes = $pix["ves"];
-			$sumVes += $pix["ves"];
-		}
-	}
-	
-	$wh = 256;
-	$tileX = isset($_GET['tileX'])?$_GET['tileX']:149;
-	$tileY = isset($_GET['tileY'])?$_GET['tileY']:74;
-	$zoom = isset($_GET['tileZ'])?$_GET['tileZ']:8;
-	$fileDir1 = "karta/z".$zoom."/";
-	$fileDir = "kartaGradient/z".$zoom."/";
-	$fileName = "x".$tileX."y".$tileY.".png";
-	$trueFileName = (file_exists($fileDir.$fileName))?true:false;
-	//примерные координаты моря (граница верхнего левого по нижний правый)
-	$xOdz1 = getLongitudeToPix(9.94837012499998,$zoom);
-	$yOdz1 = getLatitudeToPix(66.42445616455103,$zoom);
-	$xOdz2 = getLongitudeToPix(32.31653418749997,$zoom);
-	$yOdz2 = getLatitudeToPix(52.63962485326667,$zoom);
 	//координаты начала фотки
-	$nachZoomVoda = pow(2,9-$zoom); //начальный зум воды
-	$widthVoda = 1522;
-	$heightVoda = 1100;
-	$kordVoda = array(
+	$nachZoomWater = pow(2,9-$zoom);                         //начальный зум воды
+    $widthWater = 1522;                                      //ширина шаблона воды
+	$heightWater = 1100;                                     //высота шаблона воды  
+	//примерное ОДЗ воды    
+	$kordWater = array(
 		"x" => getLongitudeToPix(26.437022,$zoom),
 		"y" => getLatitudeToPix(60.83086,$zoom)
 	);
 	$whMapGlobal = pow(2,$zoom+8);
-	$tileOdzX1 = (int)($kordVoda["x"]/$wh);
-	$tileOdzY1 = (int)($kordVoda["y"]/$wh);
-	$tileOdzX2 = (int)(($kordVoda["x"]+$widthVoda/$nachZoomVoda)/$wh);
-	$tileOdzY2 = (int)(($kordVoda["y"]+$heightVoda/$nachZoomVoda)/$wh);
+	$tileOdzX1 = (int)($kordWater["x"]/$wh);
+	$tileOdzY1 = (int)($kordWater["y"]/$wh);
+	$tileOdzX2 = (int)(($kordWater["x"]+$widthWater/$nachZoomWater)/$wh);
+	$tileOdzY2 = (int)(($kordWater["y"]+$heightWater/$nachZoomWater)/$wh);
 	
 	//echo $tileOdzX1." ".$tileOdzY1."<br>";
 	//echo $tileOdzX2." ".$tileOdzY2."<br>";
 		
-	//если тайлы подходят
+	//если тайлы входят в ОДЗ 
 	if ($tileX >= $tileOdzX1 && $tileY >= $tileOdzY1 && $tileX <= $tileOdzX2 && $tileY <= $tileOdzY2) {
 		
-		if ($trueFileName) {
-			$im = imageCreateFromPng($fileDir.$fileName) or die ("Ошибка при создании изображения");
+		if ($existsFileName) {
+			$im = imageCreateFromPng($tileDirGradient.$fileName) or die ("Ошибка при создании изображения");
 			imagesavealpha($im, true);
 		} else {
 			$im = imageCreateTrueColor ($wh, $wh) or die ("Ошибка при создании изображения");
@@ -133,8 +45,8 @@
 			imagesavealpha($im, true);
 			$couleur_fond = ImageColorAllocateAlpha ($im, 0, 0, 0, 127);
 			
-			if (file_exists($fileDir1.$fileName)) {
-				$im1 = imageCreateFromPng($fileDir1.$fileName) or die ("Ошибка при создании изображения");
+			if (file_exists($tileDirWater.$fileName)) {
+				$im1 = imageCreateFromPng($tileDirWater.$fileName) or die ("Ошибка при создании изображения");
 			} else {
 				session_start();
 				//unset($_SESSION["imgKarta"]);
@@ -142,17 +54,13 @@
 				//$_SESSION["imgKarta"] = imageCreateTrueColor($wh,$wh);
 				$im2 = imageCreateTrueColor (imagesx($_SESSION["imgKarta"]), imagesy($_SESSION["imgKarta"])) or die ("Ошибка при создании изображения");
 				imageCopy($im2,$_SESSION["imgKarta"],0,0,0,0,imagesx($im2),imagesy($im2));
-				//$im1 = imageCreateTrueColor (imagesx($im2)/$nachZoomVoda, imagesy($im2)/$nachZoomVoda) or die ("Ошибка при создании изображения");
-				//imagecopyresized($im1,$im2,0,0,0,0,imagesx($im2)/$nachZoomVoda,imagesy($im2)/$nachZoomVoda,imagesx($im2),imagesy($im2));
-				
-				//echo imagesx($im2)/$nachZoomVoda/($tileOdzX2-$tileOdzX1)/$nachZoomVoda."<br>";
-				//echo $wh*$tileY-$kordVoda["y"]."<br>";
-				//echo ($wh*($tileY-$tileOdzY1))/$nachZoomVoda."<br>";
+				//$im1 = imageCreateTrueColor (imagesx($im2)/$nachZoomWater, imagesy($im2)/$nachZoomWater) or die ("Ошибка при создании изображения");
+				//imagecopyresized($im1,$im2,0,0,0,0,imagesx($im2)/$nachZoomWater,imagesy($im2)/$nachZoomWater,imagesx($im2),imagesy($im2));
 				
 				$dstX = 0;
 				$dstY = 0;
-				$srcX = $wh*$tileX-$kordVoda["x"];
-				$srcY = $wh*$tileY-$kordVoda["y"];
+				$srcX = $wh*$tileX-$kordWater["x"];
+				$srcY = $wh*$tileY-$kordWater["y"];
 				if ($srcX < 0) {
 					$dstX = -$srcX;
 					$srcX = 0;
@@ -161,22 +69,47 @@
 					$dstY = -$srcY;
 					$srcY = 0;
 				}
-				$srcX *= $nachZoomVoda;
-				$srcY *= $nachZoomVoda;
-				$srcWH = $wh*$nachZoomVoda;
+				$srcX *= $nachZoomWater;
+				$srcY *= $nachZoomWater;
+				$srcWH = $wh*$nachZoomWater;
 				//if ($srcWH > imagesx($im2) && $srcWH > imagesy($im2)) $srcWH = (imagesx($im2) > imagesy($im2))?imagesx($im2):imagesy($im2);
-				//echo $razm1*$nachZoomVoda."<br>";
-				//echo $razm2*$nachZoomVoda."<br>";
+				//echo $razm1*$nachZoomWater."<br>";
+				//echo $razm2*$nachZoomWater."<br>";
 				
 				$im1 = imageCreateTrueColor ($wh, $wh) or die ("Ошибка при создании изображения");
 				imagecopyresized($im1,$im2,$dstX,$dstY,$srcX,$srcY,$wh,$wh,$srcWH,$srcWH);
 				imagedestroy($im2);
 				
-				if (!file_exists($fileDir1)) mkdir($fileDir1, 0777, true);
-				ImagePNG($im1,$fileDir1.$fileName,1); 
+				if (!file_exists($tileDirWater)) mkdir($tileDirWater, 0777, true);
+				ImagePNG($im1,$tileDirWater.$fileName,1); 
 			}
 			
 			$pixels = array();
+			
+			// Выполнение SQL запроса	
+	        $query = "SELECT DISTINCT VWS.longitude, VWS.latitude, PPS.chlorophyll_a_concentration, VWS.sample_date
+		        FROM vw_samples AS VWS INNER JOIN photosynthetic_pigments_samples AS PPS ON VWS.id_sample = PPS.id_sample 
+		        WHERE VWS.sample_date >= '$date1' AND VWS.sample_date <= '$date2'
+		        ORDER BY VWS.sample_date ASC";
+		    
+		    $result = pg_query($query) or die('Ошибка запроса: ' . pg_last_error());
+		    
+		    while ($line = pg_fetch_array($result, null, PGSQL_ASSOC)) {
+		        $pixels["l{$line['longitude']}l{$line['latitude']}"] = 
+		                array(	"x" => getLongitudeToPix($line['longitude'],$zoom),
+								"y" => getLatitudeToPix($line['latitude'],$zoom),
+								"ves" => $line['chlorophyll_a_concentration'],
+								"date" => $line['sample_date']);
+		    }
+		    
+		    if ($checkLog) {
+		        echo sizeof($pixels);
+		        echo "<pre>";
+		        print_r($pixels);
+		        echo "</pre>";
+		    }
+
+            /*
 			$pixels[] = array(	"x" => getLongitudeToPix(30.21833,$zoom),
 								"y" => getLatitudeToPix(59.88833,$zoom), 
 								"ves" => 2.41);
@@ -243,6 +176,7 @@
 			$pixels[] = array(	"x" => getLongitudeToPix(29.785,$zoom), 
 								"y" => getLatitudeToPix(59.91833,$zoom), 
 								"ves" => 8.13);
+			*/
 
 			//echo $pixels[2]["x"]." ".$pixels[2]["y"]."<br>";
 			
@@ -264,20 +198,6 @@
 			
 			
 			$pixels2 = array();
-		/* 	for($i = 0; $i < $wh; $i++) 
-			{
-				for($j = 0; $j < $wh; $j++) 
-				{
-					$x = $i+$wh*$options["tileX"];
-					$y = $j+$wh*$options["tileY"];
-					
-					//проверка примерной ОДЗ
-					//if ((!($x > $xOdz1 && $y > $yOdz1)) || (!($x < $xOdz2 && $y < $yOdz2))) continue;
-					
-					$pixels2[$i][$j]["ves"] = getVes($pixels, $i, $j, $options);
-					//echo $i." ".$j." ".$pixels2[$i][$j]["ves"]."<br>";
-				}
-			} */
 			//echo microtime(true) - $time."<br>";
 			
 			for($i = 0; $i < $wh; $i++) 
@@ -287,15 +207,16 @@
 					$x = $i+$wh*$options["tileX"];
 					$y = $j+$wh*$options["tileY"]; 
 
-					//$srcColor = imagecolorsforindex($im1, ImageColorAt($im1, $x-$kordVoda["x"], $y-$kordVoda["y"]));
+					//$srcColor = imagecolorsforindex($im1, ImageColorAt($im1, $x-$kordWater["x"], $y-$kordWater["y"]));
 					$srcColor = imagecolorsforindex($im1, ImageColorAt($im1, $i, $j));
 					//$rgb = ImageColorAt($im, $i, $j);
 					//$r = ( $rgb >> 16) & 0xFF;
-					//echo " ".($x-$kordVoda["x"])." | ".($y-$kordVoda["y"])." |".(($srcColor["alpha"] == 0)?$srcColor["red"]:"null")."<br>";
+					//echo " ".($x-$kordWater["x"])." | ".($y-$kordWater["y"])." |".(($srcColor["alpha"] == 0)?$srcColor["red"]:"null")."<br>";
 					//echo (($srcColor["alpha"] == 0)?$srcColor["red"]:"null")."<br>";
 					
+					//ищем по шаблону karta.png
+					//если красный цвет и не прозрачный то вода
 					if ($srcColor["red"] == 255 && $srcColor["alpha"] == 0)
-					//if (ODZ($x,$y,$odzPix))
 					{
 						$pixels2[$i][$j]["ves"] = getVes($pixels, $i, $j, $options);
 						//echo $pixels2[$i][$j]["ves"]."<br>";
@@ -307,17 +228,18 @@
 						
 						//echo $colorG."<br>";
 						//$colorAlpha = ImageColorAllocateAlpha ($im, 255, 0, 255, 30);
-						$colorAlpha = ImageColorAllocateAlpha ($im, 255, 255-$colorG, 255-$colorG, 30);
+						$colorAlpha = ImageColorAllocateAlpha ($im, 255-$colorG, 255, 255-$colorG, 30);
 						ImageSetPixel ($im, $i, $j, $colorAlpha);
 					} else ImageSetPixel ($im, $i, $j, $couleur_fond); 
 				}
 			}
-			if (!file_exists($fileDir)) mkdir($fileDir, 0777, true);
-			ImagePNG($im,$fileDir.$fileName,1); 
+			//if (!file_exists($tileDirGradient)) mkdir($tileDirGradient, 0777, true);
+			//ImagePNG($im,$tileDirGradient.$fileName,1); 
 		}
 		
 		//echo microtime(true) - $time;
-		header ("Content-type: image/png");
-		ImagePNG($im);
+		if (!$checkLog) {
+		    header ("Content-type: image/png");
+		    ImagePNG($im);
+		}
 	}
-?>
